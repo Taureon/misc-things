@@ -1,0 +1,234 @@
+<style>
+	*{
+		background-color: black;
+	}
+</style>
+<canvas id="canvas">Turn on HTML5 Canvas</canvas>
+<script>
+
+class Tile {
+	constructor (grid, x, y) {
+		this.grid = grid;
+		this.x = x;
+		this.y = y;
+		this.nearbyMines = 0;
+		this.isMine = false;
+		this.isRevealed = false;
+		this.isFlagged = false;
+	}
+	neighbors () {
+		let near = get3x3(this.x, this.y);
+		near.splice(4, 1); // remove yourself
+		return near;
+	}
+}
+
+class Minesweeper {
+	constructor (width, height, mines) {
+		this.firstPlay = true;
+		this.mines = mines;
+		this.width = width;
+		this.height = height;
+		this.tiles = Array(width * height)
+			.fill(i => new Tile(this, i % width, Math.floor(i / width)))
+			.map((f, i) => f(i));
+	}
+	get (x, y) {
+		return this.tiles[x + y * this.width];
+	}
+	get3x3 (x, y) {
+		let local = [];
+		for (let a = Math.max(0, x - 1); a < Math.min(x + 2, grid.width); a++) {
+			for (let b = Math.max(0, y - 1); b < Math.min(y + 2, grid.height); b++) {
+				local.push(this.grid.get(a, b));
+			}
+		}
+		return local;
+	}
+	generate (x, y) {
+		let far = [],
+			near = get3x3(x, y);
+		for (let tile of this.tiles) {
+			if (!near.includes(tile)) {
+				far.push(tile);
+			}
+		}
+
+		for (let i = 0; i < this.mines; i++) {
+			let index = Math.floor(far.length * Math.random());
+			far[index].mines = 0;
+			far[index] = far[far.length - 1];
+			far.pop();
+		}
+
+		for (let tile of this.tiles) {
+			for (let neighbor of tile.neighbors()) {
+				if (neighbor.isMine) {
+					tile.nearbyMines++;
+				}
+			}
+		}
+	}
+	clear (x, y) {
+		let first = this.get(x, y);
+		if (first.isRevealed) return;
+
+		let queue = [first],
+			toReveal = [];
+
+		while (queue.length) {
+			let queueNew = [];
+			for (let tile of queue) {
+				toReveal.push(tile);
+				if (tile.nearbyMines) continue;
+				for (let neighbor of tile.neighbors(grid.length)) {
+					if (!(queueNew.includes(neighbor) || toReveal.includes(neighbor))) {
+						queueNew.push(neighbor);
+					}
+				}
+			}
+			queue = queueNew;
+		}
+
+		for (let tile of toReveal) {
+			tile.isRevealed = true;
+			tile.isFlagged = false;
+		}
+	}
+	play (x, y, wantsFlag) {
+		let played = this.get(x, y);
+		
+		if (!played.isRevealed) {
+			if (wantsFlag) {
+				played.isFlagged = !played.isFlagged;
+				return;
+			}
+
+			if (this.firstPlay) {
+				this.firstPlay = false;
+				this.generate(x, y);
+			}
+
+			this.clear(x, y);
+			return;
+		}
+
+		let neighbors = playes.neighbors(),
+			counter = 0;
+
+		for (let tile of neighbors) {
+			if (!tile.isRevealed) {
+				counter++;
+			}
+		}
+
+		if (played.nearbyMines == counter) {
+			for (let tile of neighbors) {
+				if (!tile.isRevealed) {
+					if (wantsFlag) {
+						tile.isFlagged = true;
+					} else {
+						clear(tile.x, tile.y);
+					}
+				}
+			}
+		}
+	}
+}
+
+let canvas = document.getElementById('canvas'),
+	ctx = canvas.getContext('2d'),
+
+	// position of the center of the camera. the center of the grid is also 0, 0
+	camX = 0,
+	camY = 0,
+
+	// how many screens fit vertically in a tile. 1 => tile height = screen height
+	camScale = 0.04,
+	auxMove = false,
+
+	minesweeper = new Minesweeper(25, 18, 50),
+
+render = () => {
+	ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+	//reverse this
+	/*
+		let y = Math.floor((event.y - canvas.height / 2) * camScale),
+			x = Math.floor((event.x - canvas.width / 2) * camScale);*/
+};
+
+canvas.onkeypress = event => {
+	switch (event.key) {
+		case 'w':
+		case 'ArrowUp':
+			camY -= camScale;
+			break;
+		case 's':
+		case 'ArrowDown':
+			camY += camScale;
+			break;
+		case 'a':
+		case 'ArrowLeft':
+			camX -= camScale;
+			break;
+		case 'd':
+		case 'ArrowRight':
+			camX += camScale;
+			break;
+		default:
+			return;
+	}
+	render();
+};
+canvas.onmousemove = event => {
+	if (auxMove) {
+		camX += event.movementX * camScale;
+		camY += event.movementY * camScale;
+		render();
+	}
+};
+canvas.onmousedown = event => {
+	event.preventDefault();
+	if (event.which == 1) {
+		auxMove = true;
+	} else {
+		let y = Math.floor((event.y - canvas.height / 2) * camScale),
+			x = Math.floor((event.x - canvas.width / 2) * camScale);
+		minesweeper.play(x, y, event.which == 2);
+		render();
+	}
+};
+canvas.onmouseup = event => {
+	if (event.which == 1) {
+		auxMove = false;
+	}
+};
+
+canvas.onwheel = event => {
+	camScale *= event.deltaY > 0 ? 1.1 : 1 / 1.1;
+    render();
+};
+
+(window.onresize = () => {
+    let w = window.innerWidth,
+        h = window.innerHeight,
+        scaleW = 16,
+        scaleH = 9;
+    if (w * scaleH < h * scaleW) {
+        canvas.width = w;
+        canvas.height = w * scaleH / scaleW;
+        canvas.style.top = outeroffsetY = (h - canvas.height) / 2;
+        canvas.style.left = outeroffsetX = 0;
+    } else {
+        canvas.height = h;
+        canvas.width = h * scaleW / scaleH;
+        canvas.style.top = outeroffsetY = 0;
+        canvas.style.left = outeroffsetX = (w - canvas.width) / 2;
+    }
+
+    render();
+})();
+
+render();
+</script>
