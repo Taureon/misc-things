@@ -6,6 +6,9 @@
 		left: 0px;
 		top: 0px;
 	}
+	canvas {
+		position: relative;
+	}
 </style>
 <canvas id="canvas">Turn on HTML5 Canvas</canvas>
 <script>
@@ -124,14 +127,14 @@ class Minesweeper {
 			counter = 0;
 
 		for (let tile of neighbors) {
-			if (!tile.isRevealed) {
+			if (wantsFlag ? !tile.isRevealed : tile.isFlagged) {
 				counter++;
 			}
 		}
 
 		if (played.nearbyMines == counter) {
 			for (let tile of neighbors) {
-				if (!tile.isRevealed) {
+				if (!tile.isRevealed && (wantsFlag || !tile.isFlagged)) {
 					if (wantsFlag) {
 						tile.isFlagged = true;
 					} else {
@@ -151,9 +154,9 @@ let canvas = document.getElementById('canvas'),
 	topOffset = 0,
 	auxMove = false,
 
-	// position of the center of the camera. the center of the grid is also 0, 0
-	camX = 0,
-	camY = 0,
+	// position of the top-left corner of the camera
+	camX = -1,
+	camY = -1,
 
 	// how many screens fit vertically in a tile. 1 => tile height = screen height. uses width if width is lower than height
 	camScale = 0.04,
@@ -178,12 +181,12 @@ render = () => {
 	ctx.lineWidth = size / 16;
 
 	for (let tile of minesweeper.tiles) {
-		let x = (tile.x - minesweeper.height / 2 - camX) * size + halfWidth,
-			y = (tile.y - minesweeper.width / 2 - camY) * size + halfHeight;
+		let x = (tile.x - camX) * size,
+			y = (tile.y - camY) * size;
 
 		// the base of the tile
 		ctx.fillStyle = '#404040';
-		ctx.fillRect(x - 1, y - 1, size + 1, size + 1);
+		ctx.fillRect(x, y, size, size);
 		ctx.fillStyle = tile.isRevealed ? 'lightgray' : 'gray';
 		ctx.fillRect(x + size * 0.1, y + size * 0.1, size * 0.8, size * 0.8);
 
@@ -200,29 +203,39 @@ render = () => {
 			character(tile.nearbyMines.toString(), x, y, size);
 		}
 	}
+
+	ctx.fillStyle = '#000';
+	for (let X = 0; X <= minesweeper.width; X++) {
+		let x = (X - camX) * size,
+			y = (0 - camY) * size;
+		ctx.fillRect(x, y, 1, minesweeper.height * size);
+	}
+	for (let Y = 0; Y <= minesweeper.height; Y++) {
+		let x = (0 - camX) * size,
+			y = (Y - camY) * size;
+		ctx.fillRect(x, y, minesweeper.width * size, 1);
+	}
 };
 
 document.onkeypress = event => {
 	switch (event.key) {
-		case 'w':
-		case 'ArrowUp':
+		case 'w': case 'ArrowUp':
 			camY -= 1;
 			break;
-		case 's':
-		case 'ArrowDown':
+		case 's': case 'ArrowDown':
 			camY += 1;
 			break;
-		case 'a':
-		case 'ArrowLeft':
+		case 'a': case 'ArrowLeft':
 			camX -= 1;
 			break;
-		case 'd':
-		case 'ArrowRight':
+		case 'd': case 'ArrowRight':
 			camX += 1;
 			break;
 		default:
 			return;
 	}
+	camX = Math.max(-8, Math.min(minesweeper.width + 8, camX));
+	camY = Math.max(-8, Math.min(minesweeper.height + 8, camY));
 	render();
 };
 document.onmousemove = event => {
@@ -238,9 +251,8 @@ document.onmousedown = event => {
 		auxMove = true;
 	} else {
 		let size = Math.min(canvas.width, canvas.height) * camScale,
-			x = (event.x - halfWidth - leftOffset) / size + camX + minesweeper.width / 2,
-			y = (event.y - halfHeight - topOffset) / size + camY + minesweeper.height / 2;
-		console.log(x.toFixed(3), y.toFixed(3), event, {size, camX, camY });
+			x = (event.x - leftOffset) / size + camX,
+			y = (event.y - topOffset) / size + camY;
 		minesweeper.play(Math.floor(x), Math.floor(y), event.button == 2);
 		render();
 	}
@@ -253,19 +265,7 @@ document.onmouseup = event => {
 document.oncontextmenu = event => event.preventDefault();
 
 document.onwheel = event => {
-	let size = Math.min(canvas.width, canvas.height) * camScale,
-		camScaleOld = camScale,
-		camXOld = camX  // debug only
-		camYOld = camY; // debug only
 	camScale *= event.deltaY > 0 ? 1.1 : 1 / 1.1;
-	camX += ((halfWidth + leftOffset - event.x) / size - camX) * camScaleOld / camScale;
-	camY += ((halfHeight + topOffset - event.y) / size - camY) * camScaleOld / camScale;
-	console.log(
-		'Size:'    .padEnd(8),  size        .toFixed(3).padStart(9),
-	  '\nScale:'   .padEnd(9),  camScaleOld .toFixed(3).padStart(9),  camScale .toFixed(3).padStart(9),
-	  '\nMouse:'   .padEnd(9),  event.x     .toFixed(3).padStart(9),  event.y  .toFixed(3).padStart(9),
-	  '\nOld Cam:' .padEnd(9),  camXOld     .toFixed(3).padStart(9),  camXOld  .toFixed(3).padStart(9),
-	  '\nNew Cam:' .padEnd(9),  camX        .toFixed(3).padStart(9),  camX     .toFixed(3).padStart(9));
     render();
 };
 
