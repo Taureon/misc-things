@@ -258,8 +258,8 @@ document.onwheel = event => {
 		camXOld = camX  // debug only
 		camYOld = camY; // debug only
 	camScale *= event.deltaY > 0 ? 1.1 : 1 / 1.1;
-	camX += ((event.x - halfWidth - leftOffset) / size - camX) * camScale / camScaleOld;
-	camY += ((event.y - halfHeight - topOffset) / size - camY) * camScale / camScaleOld;
+	camX += ((halfWidth + leftOffset - event.x) / size - camX) * camScaleOld / camScale;
+	camY += ((halfHeight + topOffset - event.y) / size - camY) * camScaleOld / camScale;
 	console.log(
 		'Size:'    .padEnd(8),  size        .toFixed(3).padStart(9),
 	  '\nScale:'   .padEnd(9),  camScaleOld .toFixed(3).padStart(9),  camScale .toFixed(3).padStart(9),
