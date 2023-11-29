@@ -32,6 +32,8 @@ class Tile {
 
 class Minesweeper {
 	constructor (width, height, mines) {
+		this.lost = false;
+		this.goingOn = true;
 		this.firstPlay = true;
 		this.mines = mines;
 		this.width = width;
@@ -53,6 +55,8 @@ class Minesweeper {
 		return local;
 	}
 	generate (x, y) {
+
+		// get the area of all tiles that are not near the cursor
 		let far = [],
 			near = this.get3x3(x, y);
 		for (let tile of this.tiles) {
@@ -61,14 +65,19 @@ class Minesweeper {
 			}
 		}
 
-		for (let i = 0; i < this.mines; i++) {
+		// put mines in that area
+		for (let i = 0; i < Math.min(far.length, this.mines); i++) {
 			let index = Math.floor(far.length * Math.random());
 			far[index].isMine = true;
 			far[index] = far[far.length - 1];
 			far.pop();
 		}
 
+		// cover up the entire board and count mined neighbors of all tiles
 		for (let tile of this.tiles) {
+			tile.nearbyMines = 0;
+			tile.isRevealed = false;
+			tile.isFlagged = false;
 			for (let neighbor of tile.neighbors()) {
 				if (neighbor.isMine) {
 					tile.nearbyMines++;
@@ -80,6 +89,13 @@ class Minesweeper {
 		let first = this.get(x, y);
 		if (first.isRevealed) return;
 
+		if (first.isMine) {
+			first.isRevealed = true;
+			this.lost = true;
+			this.goingOn = false;
+			return;
+		}
+
 		let queue = [first],
 			toReveal = [];
 
@@ -87,7 +103,7 @@ class Minesweeper {
 			let queueNew = [];
 			for (let tile of queue) {
 				toReveal.push(tile);
-				if (tile.nearbyMines) continue;
+				if (tile.nearbyMines || tile.isRevealed) continue;
 				for (let neighbor of tile.neighbors()) {
 					if (!(queueNew.includes(neighbor) || toReveal.includes(neighbor))) {
 						queueNew.push(neighbor);
@@ -102,6 +118,7 @@ class Minesweeper {
 			tile.isFlagged = false;
 		}
 	}
+	checkWin () {}
 	play (x, y, wantsFlag) {
 		let played = this.get(x, y);
 		if (!played) {
@@ -119,7 +136,9 @@ class Minesweeper {
 				this.generate(x, y);
 			}
 
-			this.clear(x, y);
+			if (!played.isFlagged) {
+				this.clear(x, y);
+			}
 			return;
 		}
 
@@ -134,8 +153,8 @@ class Minesweeper {
 
 		if (played.nearbyMines == counter) {
 			for (let tile of neighbors) {
-				if (!tile.isRevealed && (wantsFlag || !tile.isFlagged)) {
-					if (wantsFlag) {
+				if (wantsFlag || !tile.isFlagged) {
+					if (wantsFlag && !tile.isRevealed) {
 						tile.isFlagged = true;
 					} else {
 						this.clear(tile.x, tile.y);
@@ -162,7 +181,7 @@ let canvas = document.getElementById('canvas'),
 	camScale = 0.04,
 
 	// i just shoved all the game logic in this class so i dont have to look at it
-	minesweeper = new Minesweeper(25, 18, 50),
+	minesweeper = new Minesweeper(2500, 1500, 500000), //(25, 18, 100),
 
 character = (character, x, y, size) => {
 	ctx.strokeText(character, x + size / 2, y + size * 0.56);
@@ -180,6 +199,9 @@ render = () => {
 	ctx.font = 'bold ' + (size * 0.75) + 'px Sans-serif';
 	ctx.lineWidth = size / 16;
 
+	camX = Math.max(-3.75, Math.min(3.75 + minesweeper.width - canvas.width / size, camX));
+	camY = Math.max(-3.75, Math.min(3.75 + minesweeper.height - canvas.height / size, camY));
+
 	for (let tile of minesweeper.tiles) {
 		let x = (tile.x - camX) * size,
 			y = (tile.y - camY) * size;
@@ -187,7 +209,7 @@ render = () => {
 		// the base of the tile
 		ctx.fillStyle = '#404040';
 		ctx.fillRect(x, y, size, size);
-		ctx.fillStyle = tile.isRevealed ? 'lightgray' : 'gray';
+		ctx.fillStyle = tile.isRevealed ? tile.isMine ? 'red' : 'lightgray' : (tile.isMine && minesweeper.lost) ? 'darkred' : 'gray';
 		ctx.fillRect(x + size * 0.1, y + size * 0.1, size * 0.8, size * 0.8);
 
 		// whatever symbol is supposed to be on the tile
@@ -220,22 +242,20 @@ render = () => {
 document.onkeypress = event => {
 	switch (event.key) {
 		case 'w': case 'ArrowUp':
-			camY -= 1;
+			camY -= 0.05 / camScale;
 			break;
 		case 's': case 'ArrowDown':
-			camY += 1;
+			camY += 0.05 / camScale;
 			break;
 		case 'a': case 'ArrowLeft':
-			camX -= 1;
+			camX -= 0.05 / camScale;
 			break;
 		case 'd': case 'ArrowRight':
-			camX += 1;
+			camX += 0.05 / camScale;
 			break;
 		default:
 			return;
 	}
-	camX = Math.max(-8, Math.min(minesweeper.width + 8, camX));
-	camY = Math.max(-8, Math.min(minesweeper.height + 8, camY));
 	render();
 };
 document.onmousemove = event => {
@@ -265,7 +285,9 @@ document.onmouseup = event => {
 document.oncontextmenu = event => event.preventDefault();
 
 document.onwheel = event => {
-	camScale *= event.deltaY > 0 ? 1.1 : 1 / 1.1;
+	let oldCenterX = camX + canvas.width * camScale,
+		oldCenterY = camY + canvas.height * camScale;
+	camScale *= event.deltaY < 0 ? 1.1 : 1 / 1.1;
     render();
 };
 
