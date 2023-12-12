@@ -20,39 +20,76 @@ class Tile {
 		this.y = y;
 		this.nearbyMines = 0;
 		this.isMine = false;
-		this.isRevealed = false;
-		this.isFlagged = false;
+		this._isRevealed = false;
+		this._isFlagged = false;
+	}
+	get isRevealed () { return this._isRevealed; }
+	set isRevealed (value) {
+		if (value !== this._isRevealed) {
+			this.grid.revealed += value - this._isRevealed;
+			this._isRevealed = value;
+		}
+	}
+	get isFlagged () { return this._isFlagged; }
+	set isFlagged (value) {
+		if (value !== this._isFlagged) {
+			this.grid.flagged += value - this._isFlagged;
+			this._isFlagged = value;
+		}
 	}
 	neighbors () {
-		let near = this.grid.get3x3(this.x, this.y);
-		near.splice(near.indexOf(this), 1); // Remove yourself... NOW...
+		let near = this.grid.get3x3(this.x, this.y, true);
 		return near;
 	}
 }
 
 class Minesweeper {
-	constructor (width, height, mines) {
+	constructor (width, height, mines, cheats) {
+		this.won = false;
 		this.lost = false;
 		this.goingOn = true;
 		this.firstPlay = true;
+		this.cheatMode = false;
 		this.mines = mines;
+		this.cheats = cheats;
 		this.width = width;
 		this.height = height;
-		this.tiles = Array(width * height)
+		this.area = width * height;
+		this.tiles = Array(this.area)
 			.fill(i => new Tile(this, i % width, Math.floor(i / width)))
 			.map((f, i) => f(i));
+		this.revealed = 0;
+		this.flagged = 0;
+	}
+	toggleCheatMode () {
+		if (this.cheatMode) {
+			this.cheatMode = false;
+		} else if (this.cheats) {
+			this.cheatMode = true;
+		}
 	}
 	get (x, y) {
 		return this.tiles[x + y * this.width];
 	}
-	get3x3 (x, y) {
+	get3x3 (x, y, forgetYourself) {
 		let local = [];
 		for (let a = Math.max(0, x - 1); a < Math.min(x + 2, this.width); a++) {
 			for (let b = Math.max(0, y - 1); b < Math.min(y + 2, this.height); b++) {
-				local.push(this.get(a, b));
+				if (!forgetYourself || !(x == a && y == b)) {
+					local.push(this.get(a, b));
+				}
 			}
 		}
 		return local;
+	}
+	getRectangle (x, y, width, height) {
+		let tiles = [];
+		for (let a = Math.max(0, x); a < Math.min(x + width, this.width); a++) {
+			for (let b = Math.max(0, y); b < Math.min(y + height, this.height); b++) {
+				tiles.push(this.get(a, b));
+			}
+		}
+		return tiles;
 	}
 	generate (x, y) {
 
@@ -101,10 +138,13 @@ class Minesweeper {
 
 		while (queue.length) {
 			let queueNew = [];
-			for (let tile of queue) {
+			for (let i = 0; i < queue.length; i++) {
+				let tile = queue[i];
 				toReveal.push(tile);
 				if (tile.nearbyMines || tile.isRevealed) continue;
-				for (let neighbor of tile.neighbors()) {
+				let neighbors = tile.neighbors();
+				for (let j = 0; j < neighbors.length; j++) {
+					let neighbor = neighbors[j];
 					if (!(queueNew.includes(neighbor) || toReveal.includes(neighbor))) {
 						queueNew.push(neighbor);
 					}
@@ -118,10 +158,25 @@ class Minesweeper {
 			tile.isFlagged = false;
 		}
 	}
-	checkWin () {}
+	checkWin () {
+		this.won = minesweeper.width * minesweeper.height == minesweeper.mines + minesweeper.revealed;
+	}
 	play (x, y, wantsFlag) {
 		let played = this.get(x, y);
 		if (!played) {
+			return;
+		}
+
+		if (this.cheatMode) {
+			if (!played.isRevealed && !played.isFlagged) {
+				this.cheats--;
+				this.cheatMode = wantsFlag && this.cheats;
+				if (played.isMine) {
+					played.isFlagged = true;
+				} else {
+					this.clear(x, y);
+				}
+			}
 			return;
 		}
 		
@@ -139,6 +194,8 @@ class Minesweeper {
 			if (!played.isFlagged) {
 				this.clear(x, y);
 			}
+
+			this.checkWin();
 			return;
 		}
 
@@ -162,6 +219,19 @@ class Minesweeper {
 				}
 			}
 		}
+
+		this.checkWin();
+	}
+}
+
+class Clickable {
+	constructor(x, y, w, h, onclick) {
+		this.x = x;
+		this.y = y;
+		this.w = w;
+		this.h = h;
+		this.onclick = onclick;
+		clickables.push(this);
 	}
 }
 
@@ -172,6 +242,7 @@ let canvas = document.getElementById('canvas'),
 	leftOffset = 0,
 	topOffset = 0,
 	auxMove = false,
+	clickables = [],
 
 	// position of the top-left corner of the camera
 	camX = -1,
@@ -181,61 +252,161 @@ let canvas = document.getElementById('canvas'),
 	camScale = 0.04,
 
 	// i just shoved all the game logic in this class so i dont have to look at it
-	minesweeper = new Minesweeper(2500, 1500, 500000), //(25, 18, 100),
+	minesweeper = new Minesweeper(2500, 1800, 500000, 20),
 
 character = (character, x, y, size) => {
 	ctx.strokeText(character, x + size / 2, y + size * 0.56);
 	ctx.fillText(character, x + size / 2, y + size * 0.56);
 },
 
-render = () => {
+renderGame = () => {
+	ctx.globalAlpha = 1;
 	ctx.fillStyle = 'white';
 	ctx.fillRect(0, 0, canvas.width, canvas.height);
 	ctx.textBaseline = 'middle';
 	ctx.strokeStyle = 'black';
 	ctx.textAlign = 'center';
-	let size = Math.min(canvas.width, canvas.height) * camScale,
-		halfSize = size / 2;
+	let size = Math.min(canvas.width, canvas.height) * camScale;
 	ctx.font = 'bold ' + (size * 0.75) + 'px Sans-serif';
 	ctx.lineWidth = size / 16;
 
 	camX = Math.max(-3.75, Math.min(3.75 + minesweeper.width - canvas.width / size, camX));
 	camY = Math.max(-3.75, Math.min(3.75 + minesweeper.height - canvas.height / size, camY));
 
-	for (let tile of minesweeper.tiles) {
-		let x = (tile.x - camX) * size,
-			y = (tile.y - camY) * size;
+	let tilesPerRenderColumn = 1 / camScale,
+		tilesToRender = minesweeper.getRectangle(Math.floor(camX), Math.floor(camY), Math.ceil(tilesPerRenderColumn * 16 / 9 + 1), Math.ceil(tilesPerRenderColumn + 1));
 
-		// the base of the tile
-		ctx.fillStyle = '#404040';
-		ctx.fillRect(x, y, size, size);
-		ctx.fillStyle = tile.isRevealed ? tile.isMine ? 'red' : 'lightgray' : (tile.isMine && minesweeper.lost) ? 'darkred' : 'gray';
-		ctx.fillRect(x + size * 0.1, y + size * 0.1, size * 0.8, size * 0.8);
+	if (size > 10) {
+		for (let tile of tilesToRender) {
+			let x = (tile.x - camX) * size,
+				y = (tile.y - camY) * size;
 
-		// whatever symbol is supposed to be on the tile
-		if (!tile.isRevealed) {
-			if (tile.isFlagged) {
-				ctx.fillStyle = 'red';
-				character('⚑', x, y, size);
+			// the base of the tile
+			ctx.fillStyle = '#404040';
+			ctx.fillRect(x, y, size, size);
+			ctx.fillStyle = tile.isRevealed ? tile.isMine ? 'red' : 'lightgray' : (tile.isMine && minesweeper.lost) ? 'darkred' : 'gray';
+			ctx.fillRect(x + size * 0.1, y + size * 0.1, size * 0.8, size * 0.8);
+
+			// whatever symbol is supposed to be on the tile
+			if (!tile.isRevealed) {
+				if (tile.isFlagged) {
+					ctx.fillStyle = 'red';
+					character('⚑', x, y, size);
+				}
+			} else if (tile.isMine) {
+				character('💣', x, y, size);
+			} else if (tile.nearbyMines) {
+				ctx.fillStyle = ['lightgray', 'blue', 'green', 'red', 'purple', 'black', 'gray', 'maroon', 'turquoise'][tile.nearbyMines];
+				character(tile.nearbyMines.toString(), x, y, size);
 			}
-		} else if (tile.isMine) {
-			character('💣', x, y, size);
-		} else if (tile.nearbyMines) {
-			ctx.fillStyle = ['lightgray', 'blue', 'green', 'red', 'purple', 'black', 'gray', 'maroon', 'turquoise'][tile.nearbyMines];
-			character(tile.nearbyMines.toString(), x, y, size);
+		}
+	} else if (size > 5) {
+		let thirdSize = size / 3;
+		for (let tile of tilesToRender) {
+			let x = (tile.x - camX) * size,
+				y = (tile.y - camY) * size,
+				mx = x + thirdSize,
+				my = y + thirdSize;
+
+			// the base of the tile
+			ctx.fillStyle = '#404040';
+			ctx.fillRect(x, y, size, size);
+			ctx.fillStyle = tile.isRevealed ? tile.isMine ? 'red' : 'lightgray' : (tile.isMine && minesweeper.lost) ? 'darkred' : 'gray';
+			ctx.fillRect(x + size * 0.1, y + size * 0.1, size * 0.8, size * 0.8);
+
+			// whatever symbol is supposed to be on the tile
+			if (!tile.isRevealed) {
+				if (tile.isFlagged) {
+					ctx.fillStyle = 'red';
+				}
+			} else if (tile.isMine) {
+				ctx.fillStyle = 'purple';
+			} else if (tile.nearbyMines) {
+				ctx.fillStyle = ['lightgray', 'blue', 'green', 'red', 'purple', 'black', 'gray', 'maroon', 'turquoise'][tile.nearbyMines];
+			}
+			ctx.fillRect(mx, my, thirdSize, thirdSize);
+		}
+	} else {
+		for (let tile of tilesToRender) {
+			let x = (tile.x - camX) * size,
+				y = (tile.y - camY) * size;
+
+			// the base of the tile
+			ctx.fillStyle = tile.isRevealed ? tile.isMine ? 'red' : ['lightgray', 'blue', 'green', 'red', 'purple', 'black', 'gray', 'maroon', 'turquoise'][tile.nearbyMines] : (tile.isMine && minesweeper.lost) ? 'darkred' : 'gray';
+			ctx.fillRect(x, y, size, size);
 		}
 	}
 
+	if (size < 3) return;
+	//draws the black grid lines and the entire-grid outline
+	let u = size / 48;
 	ctx.fillStyle = '#000';
 	for (let X = 0; X <= minesweeper.width; X++) {
 		let x = (X - camX) * size,
 			y = (0 - camY) * size;
-		ctx.fillRect(x, y, 1, minesweeper.height * size);
+		ctx.fillRect(x - u, y - u, 2 * u, minesweeper.height * size);
 	}
 	for (let Y = 0; Y <= minesweeper.height; Y++) {
 		let x = (0 - camX) * size,
 			y = (Y - camY) * size;
-		ctx.fillRect(x, y, minesweeper.width * size, 1);
+		ctx.fillRect(x - u, y - u, minesweeper.width * size, 2 * u);
+	}
+	u *= 2;
+	ctx.lineWidth = u;
+	ctx.strokeStyle = '#222';
+	u--;
+	ctx.strokeRect(-camX * size - u, -camY * size - u, minesweeper.width * size + 2 * u, minesweeper.height * size + 2 * u);
+},
+
+renderHUD = () => {
+	let rectWidth = 250,
+		rectHeight = 100,
+		lineWidth = 5;
+	ctx.globalAlpha = 0.5;
+	ctx.lineWidth = lineWidth;
+	ctx.fillStyle = '#888';
+	ctx.strokeStyle = '#000';
+	ctx.beginPath();
+	ctx.roundRect(-lineWidth, -lineWidth, rectWidth + lineWidth * 2, rectHeight + lineWidth * 2, lineWidth);
+	ctx.stroke();
+	ctx.fill();
+
+	let size = 20,
+		spacing = 5,
+		x = 5,
+		y = 5;
+	ctx.textAlign = 'left';
+	ctx.font = 'bold ' + size + 'px Sans-serif';
+	ctx.globalAlpha = 1;
+	ctx.lineWidth = size / 5;
+	ctx.lineJoin = 'round';
+	ctx.fillStyle = '#fff';
+	ctx.strokeStyle = '#000';
+	character('Mines flagged: ' + minesweeper.flagged + '/' + minesweeper.mines, x, y, size);
+	character('Area revealed: ' + (100 * minesweeper.revealed / minesweeper.area).toFixed(2) + '%', x, y + size + spacing, size);
+
+	y += 10 + size * 2 + spacing;
+	x += 10;
+	let width = rectWidth - 20,
+		height = 30;
+	new Clickable(x, y, width, height, () => minesweeper.toggleCheatMode());
+	ctx.globalAlpha = minesweeper.cheatMode ? 0.25 : 0.5;
+	ctx.beginPath();
+	ctx.roundRect(x, y, width, height, lineWidth);
+	ctx.stroke();
+	ctx.fill();
+	y += 5;
+	ctx.globalAlpha = minesweeper.cheatMode ? 0.5 : 1;
+	character('Detectors left: ' + minesweeper.cheats, x, y, size);
+},
+
+render = () => {
+	clickables = [];
+	if (minesweeper) {
+		renderGame();
+		renderHUD();
+	} else {
+		renderLevelSelection();
 	}
 };
 
@@ -267,13 +438,22 @@ document.onmousemove = event => {
 	}
 };
 document.onmousedown = event => {
+	let x = event.x - leftOffset,
+		y = event.y - topOffset;
+
+	for (let c of clickables) {
+		if (x > c.x && x < c.x + c.w && y > c.y && y < c.y + c.h) {
+			c.onclick(event.button);
+			render();
+			return;
+		}
+	}
+
 	if (event.button == 1) {
 		auxMove = true;
 	} else {
-		let size = Math.min(canvas.width, canvas.height) * camScale,
-			x = (event.x - leftOffset) / size + camX,
-			y = (event.y - topOffset) / size + camY;
-		minesweeper.play(Math.floor(x), Math.floor(y), event.button == 2);
+		let size = Math.min(canvas.width, canvas.height) * camScale;
+		minesweeper.play(Math.floor(x / size + camX), Math.floor(y / size + camY), event.button == 2);
 		render();
 	}
 };
