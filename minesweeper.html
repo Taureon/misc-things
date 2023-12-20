@@ -1,3 +1,4 @@
+<title>Unisweep</title>
 <style>
     html, body {
         background-color: black;
@@ -18,27 +19,33 @@ class Tile {
         this.grid = grid;
         this.x = x;
         this.y = y;
-        this.nearbyMines = 0;
-        this.isMine = false;
-        this._isRevealed = false;
-        this._isFlagged = false;
+        this.nearbyMines = 0;       // 4 bits (0-8)
+        this.isMine = false;       // 1 bit (true / false)
+        this._isRevealed = false; // 1 bit (true / false)
+        this._isFlagged = false; // 1 bit (true / false)
+    }                           // = 7 => fits in 1 byte => entire grid can just be one fat buffer to save space
+    get isRevealed () {        // TODO: instead of tile entities, have one large buffer that Minesweeper provides api functions for
+        return this._isRevealed;
     }
-    get isRevealed () { return this._isRevealed; }
     set isRevealed (value) {
         if (value !== this._isRevealed) {
             this.grid.revealed += value - this._isRevealed;
             this._isRevealed = value;
         }
     }
-    get isFlagged () { return this._isFlagged; }
+    get isFlagged () {
+        return this._isFlagged;
+    }
     set isFlagged (value) {
         if (value !== this._isFlagged) {
             this.grid.flagged += value - this._isFlagged;
             this._isFlagged = value;
         }
     }
-    neighbors () {
-        let near = this.grid.get3x3(this.x, this.y, true);
+    get neighbors () {
+        let near = this.grid.getRectangle(this.x - 1, this.y - 1, 3, 3, true),
+            i = near.indexOf(this);
+        near[i] = near.pop();
         return near;
     }
 }
@@ -54,33 +61,24 @@ class Minesweeper {
         this.cheats = cheats;
         this.width = width;
         this.height = height;
-        this.area = width * height;
+        this.revealed = 0;
+        this.flagged = 0;
         this.tiles = Array(this.area)
             .fill(i => new Tile(this, i % width, Math.floor(i / width)))
             .map((f, i) => f(i));
-        this.revealed = 0;
-        this.flagged = 0;
+    }
+    get area () {
+        return this.width * this.height;
     }
     toggleCheatMode () {
-        if (this.cheatMode) {
-            this.cheatMode = false;
-        } else if (this.cheats) {
-            this.cheatMode = true;
-        }
+        // switch cheatMode between true and false, but only allow false if we still have cheats left
+        this.cheatMode = !(this.cheatMode || !this.cheats);
+    }
+    coordToIndex (x, y) {
+        return x + y * this.width;
     }
     get (x, y) {
-        return this.tiles[x + y * this.width];
-    }
-    get3x3 (x, y, forgetYourself) {
-        let local = [];
-        for (let a = Math.max(0, x - 1); a < Math.min(x + 2, this.width); a++) {
-            for (let b = Math.max(0, y - 1); b < Math.min(y + 2, this.height); b++) {
-                if (!forgetYourself || !(x == a && y == b)) {
-                    local.push(this.get(a, b));
-                }
-            }
-        }
-        return local;
+        return this.tiles[this.coordToIndex(x, y)];
     }
     getRectangle (x, y, width, height) {
         let tiles = [];
@@ -95,7 +93,7 @@ class Minesweeper {
 
         // get the area of all tiles that are not near the cursor
         let far = [],
-            near = this.get3x3(x, y);
+            near = this.getRectangle(x - 1, y - 1, 3, 3, true);
         for (let tile of this.tiles) {
             if (!near.includes(tile)) {
                 far.push(tile);
@@ -103,7 +101,7 @@ class Minesweeper {
         }
 
         // put mines in that area
-        for (let i = 0; i < Math.min(far.length, this.mines); i++) {
+        for (let i = Math.min(far.length, this.mines); i--;) {
             let index = Math.floor(far.length * Math.random());
             far[index].isMine = true;
             far[index] = far[far.length - 1];
@@ -115,7 +113,7 @@ class Minesweeper {
             tile.nearbyMines = 0;
             tile.isRevealed = false;
             tile.isFlagged = false;
-            for (let neighbor of tile.neighbors()) {
+            for (let neighbor of tile.neighbors) {
                 if (neighbor.isMine) {
                     tile.nearbyMines++;
                 }
@@ -142,7 +140,7 @@ class Minesweeper {
                 let tile = queue[i];
                 toReveal.push(tile);
                 if (tile.nearbyMines || tile.isRevealed) continue;
-                let neighbors = tile.neighbors();
+                let neighbors = tile.neighbors;
                 for (let j = 0; j < neighbors.length; j++) {
                     let neighbor = neighbors[j];
                     if (!(queueNew.includes(neighbor) || toReveal.includes(neighbor))) {
@@ -202,7 +200,7 @@ class Minesweeper {
             return;
         }
 
-        let neighbors = played.neighbors(),
+        let neighbors = played.neighbors,
             counter = 0;
 
         for (let tile of neighbors) {
@@ -246,6 +244,7 @@ let canvas = document.getElementById('canvas'),
     topOffset = 0,
     auxMove = false,
     clickables = [],
+    menu = 0,
 
     // position of the top-left corner of the camera
     camX = -1,
@@ -273,7 +272,7 @@ renderGameContent = () => {
     camY = Math.max(-3.75, Math.min(3.75 + minesweeper.height - canvas.height / size, camY));
 
     let tilesPerRenderColumn = 1 / camScale,
-        tilesToRender = minesweeper.getRectangle(Math.floor(camX), Math.floor(camY), Math.ceil(tilesPerRenderColumn * 16 / 9 + 1), Math.ceil(tilesPerRenderColumn + 1));
+        tilesToRender = minesweeper.getRectangle(Math.floor(camX), Math.floor(camY), Math.ceil(tilesPerRenderColumn * 16 / 9 + 1), Math.ceil(tilesPerRenderColumn + 1), false);
 
     if (size > 10) {
         for (let tile of tilesToRender) {
@@ -399,7 +398,10 @@ renderGameHUD = () => {
 
     if (!minesweeper.goingOn) {
         y += 10 + size + spacing;
-        new Clickable(x, y, width, height, () => minesweeper = null);
+        new Clickable(x, y, width, height, () => {
+            minesweeper = null;
+            menu = 0;
+        });
         ctx.globalAlpha = 0.5;
         ctx.beginPath();
         ctx.roundRect(x, y, width, height, lineWidth);
@@ -413,13 +415,15 @@ renderGameHUD = () => {
         ctx.textAlign = 'center';
         ctx.lineWidth = 5;
         ctx.globalAlpha = 0.75;
-        if (minesweeper.won) {
-            ctx.fillStyle = '#0f0';
-            character('You Won!', halfWidth, halfHeight, 0);
-        }
         if (minesweeper.lost) {
             ctx.fillStyle = '#f00';
             character('You Lost!', halfWidth, halfHeight, 0);
+        } else if (minesweeper.won) {
+            ctx.fillStyle = '#0f0';
+            character('You Won!', halfWidth, halfHeight, 0);
+        } else {
+            ctx.fillStyle = '#ff0';
+            character('Hi Hackers! Wassup?', halfWidth, halfHeight, 0);
         }
     }
 },
@@ -433,7 +437,7 @@ drawLevelSelectionButton = (x, y, w, h, label, border, background, width, height
     ctx.fill();
     ctx.strokeStyle = '#000';
     ctx.fillStyle = '#fff';
-    character(label, x + w / 3 + 6, y, h);
+    character(label, x + w / 2, y + h / 2, 0);
     new Clickable(x, y, w, h, () => {
         camX = camY = -1;
         camScale = 0.04;
@@ -442,7 +446,7 @@ drawLevelSelectionButton = (x, y, w, h, label, border, background, width, height
 },
 
 renderLevelSelection = () => {
-    let boxWidth = 500,
+    let boxWidth = 900,
         boxHeight = 185,
         boxX = halfWidth - boxWidth / 2,
         boxY = halfHeight - boxHeight / 2,
@@ -465,18 +469,20 @@ renderLevelSelection = () => {
     ctx.font = 'bold 20px Sans-serif';
     ctx.textAlign = 'center';
     let difficulties = [
-        [ 'Trivial'      , '#228' , '#44f' ,  8 ,  8 ,   6 , 1 ],
-        [ 'Easy'         , '#088' , '#0ff' , 12 ,  9 ,  12 , 1 ],
-        [ 'Medium'       , '#080' , '#0f0' , 16 , 11 ,  22 , 1 ],
-        [ 'Intermediate' , '#880' , '#ff0' , 20 , 12 ,  33 , 2 ],
-        [ 'Hard'         , '#840' , '#f80' , 22 , 13 ,  45 , 2 ],
-        [ 'Pro'          , '#800' , '#f00' , 24 , 15 ,  60 , 2 ],
-        [ 'Expert'       , '#808' , '#f0f' , 30 , 20 ,  99 , 2 ],
-        [ 'Master'       , '#222' , '#444' , 40 , 30 , 175 , 2 ]
+        [ 'Trivial'        , '#228' , '#44f' ,    8 ,    8 ,      6 ,  1 ],
+        [ 'Easy'           , '#088' , '#0ff' ,   12 ,    9 ,     12 ,  1 ],
+        [ 'Medium'         , '#080' , '#0f0' ,   16 ,   11 ,     22 ,  1 ],
+        [ 'Intermediate'   , '#880' , '#ff0' ,   20 ,   12 ,     33 ,  2 ],
+        [ 'Hard'           , '#840' , '#f80' ,   22 ,   13 ,     45 ,  2 ],
+        [ 'Pro'            , '#800' , '#f00' ,   24 ,   15 ,     60 ,  2 ],
+        [ 'Expert'         , '#808' , '#f0f' ,   30 ,   20 ,     99 ,  2 ],
+        [ 'Master'         , '#222' , '#444' ,   40 ,   30 ,    175 ,  2 ],
+        [ 'The Centurion'  , '#000' , '#222' ,  120 ,   90 ,   2000 , 15 ],
+        [ 'Euclidean Space', '#ddd' , '#fff' , 1000 , 1000 , 180000 , 20 ],
     ],
     x = calcBoxX + lineWidth + spacing,
     y = calcBoxY + lineWidth + spacing,
-    w = 130,
+    w = 190,
     h = 30;
     for (let [ label, border, background, width, height, mines, cheats ] of difficulties) {
         drawLevelSelectionButton(x, y, w, h, label, border, background, width, height, mines, cheats);
@@ -486,6 +492,7 @@ renderLevelSelection = () => {
             x += w + lineWidth + spacing;
         }
     }
+
     x = boxX + boxWidth - (spacing + w);
     y = calcBoxY + lineWidth + spacing;
     drawLevelSelectionButton(x, y, w, h, 'Custom', '#084', '#0e7', 9, 9, 9, 9);
@@ -549,28 +556,35 @@ document.onmousemove = event => {
         render();
     }
 };
-document.onmousedown = event => {
-    let x = event.x - leftOffset,
-        y = event.y - topOffset;
+
+let buttonPressInGameHandler = (x, y, button) => {
+    x -= leftOffset;
+    y -= topOffset;
+
+    if (x < 0 || y < 0 || x > canvas.width || y > canvas.height) {
+        return;
+    }
 
     for (let c of clickables) {
         if (x > c.x && x < c.x + c.w && y > c.y && y < c.y + c.h) {
-            c.onclick(event.button);
+            c.onclick(button);
             render();
             return;
         }
     }
 
     if (minesweeper) {
-        if (event.button == 1) {
+        if (button == 1) {
             auxMove = true;
         } else {
             let size = Math.min(canvas.width, canvas.height) * camScale;
-            minesweeper.play(Math.floor(x / size + camX), Math.floor(y / size + camY), event.button == 2);
+            minesweeper.play(Math.floor(x / size + camX), Math.floor(y / size + camY), button == 2);
             render();
         }
     }
 };
+document.onmousedown = event => buttonPressInGameHandler(event.clientX, event.clientY, event.button);
+
 document.onmouseup = event => {
     if (event.button == 1) {
         auxMove = false;
@@ -583,6 +597,24 @@ document.onwheel = event => {
         oldCenterY = camY + canvas.height * camScale;
     camScale *= event.deltaY < 0 ? 1.1 : 1 / 1.1;
     render();
+};
+
+let activeTouches = {};
+document.ontouchstart = event => {
+    for (let i = 0; i < event.touches.length; i++) {
+        let touch = event.touches[i];
+        touch.timeStamp = event.timeStamp;
+        activeTouches[touch.identifier] = touch;
+    }
+};
+document.ontouchend = event => {
+    for (let i = 0; i < event.touches.length; i++) {
+        let touch = event.touches[i],
+            { timeStamp } = activeTouches[touch.identifier];
+        delete activeTouches[touch.identifier];
+
+        buttonPressInGameHandler(touch.clientX, touch.clientY, (event.timeStamp - timeStamp < 100) ? 0 : 2);
+    }
 };
 
 (window.onresize = () => {
