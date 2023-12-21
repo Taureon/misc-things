@@ -14,6 +14,23 @@
 <canvas id="canvas">Turn on HTML5 Canvas</canvas>
 <script>
 
+
+// CREDIT: https://gist.github.com/blixt/f17b47c62508be59987b
+class SeedRNG {
+    constructor(seed = Date.now()) {
+        this.seed = seed % 2147483647
+        if (this.seed <= 0) {
+            this.seed += 2147483646
+        }
+    }
+    next() {
+        return this.seed = this.seed * 16807 % 2147483647
+    }
+    nextFloat() {
+        return (this.next() - 1) / 2147483646
+    }
+}
+
 class Tile {
     constructor (grid, x, y) {
         this.grid = grid;
@@ -51,18 +68,19 @@ class Tile {
 }
 
 class Minesweeper {
-    constructor (width, height, mines, cheats) {
+    constructor (width, height, mines, detectors, seed) {
         this.won = false;
         this.lost = false;
         this.goingOn = true;
         this.firstPlay = true;
         this.cheatMode = false;
         this.mines = mines;
-        this.cheats = cheats;
+        this.detectors = detectors;
         this.width = width;
         this.height = height;
         this.revealed = 0;
         this.flagged = 0;
+        this.seedRNG = new SeedRNG(seed);
         this.tiles = Array(this.area)
             .fill(i => new Tile(this, i % width, Math.floor(i / width)))
             .map((f, i) => f(i));
@@ -71,8 +89,8 @@ class Minesweeper {
         return this.width * this.height;
     }
     toggleCheatMode () {
-        // switch cheatMode between true and false, but only allow false if we still have cheats left
-        this.cheatMode = !(this.cheatMode || !this.cheats);
+        // switch cheatMode between true and false, but only allow false if we still have detectors left
+        this.cheatMode = !(this.cheatMode || !this.detectors);
     }
     coordToIndex (x, y) {
         return x + y * this.width;
@@ -102,7 +120,7 @@ class Minesweeper {
 
         // put mines in that area
         for (let i = Math.min(far.length, this.mines); i--;) {
-            let index = Math.floor(far.length * Math.random());
+            let index = Math.floor(far.length * this.seedRNG.nextFloat());
             far[index].isMine = true;
             far[index] = far[far.length - 1];
             far.pop();
@@ -170,8 +188,8 @@ class Minesweeper {
 
         if (this.cheatMode) {
             if (!played.isRevealed && !played.isFlagged) {
-                this.cheats--;
-                this.cheatMode = wantsFlag && this.cheats;
+                this.detectors--;
+                this.cheatMode = wantsFlag && this.detectors;
                 if (played.isMine) {
                     played.isFlagged = true;
                 } else {
@@ -394,7 +412,7 @@ renderGameHUD = () => {
     ctx.fill();
     y += 5;
     ctx.globalAlpha = minesweeper.cheatMode ? 0.5 : 1;
-    character('Detectors left: ' + minesweeper.cheats, x, y, size);
+    character('Detectors left: ' + minesweeper.detectors, x, y, size);
 
     if (!minesweeper.goingOn) {
         y += 10 + size + spacing;
@@ -428,21 +446,21 @@ renderGameHUD = () => {
     }
 },
 
-drawLevelSelectionButton = (x, y, w, h, label, border, background, width, height, mines, cheats) => {
-    ctx.strokeStyle = border;
-    ctx.fillStyle = background;
+drawRoundSquare = (x, y, w, h, r, b, bg) => {
+    if (b) ctx.strokeStyle = b;
+    if (bg) ctx.fillStyle = bg;
     ctx.beginPath();
-    ctx.roundRect(x, y, w, h, 2);
+    ctx.roundRect(x, y, w, h, r);
     ctx.stroke();
     ctx.fill();
+},
+
+drawLevelSelectionButton = (x, y, w, h, label, border, background, onclick) => {
+    drawRoundSquare(x, y, w, h, 2, border, background);
     ctx.strokeStyle = '#000';
     ctx.fillStyle = '#fff';
     character(label, x + w / 2, y + h / 2, 0);
-    new Clickable(x, y, w, h, () => {
-        camX = camY = -1;
-        camScale = 0.04;
-        minesweeper = new Minesweeper(width, height, mines, cheats)
-    });
+    new Clickable(x, y, w, h, onclick);
 },
 
 renderLevelSelection = () => {
@@ -458,12 +476,7 @@ renderLevelSelection = () => {
         calcBoxH = boxHeight + lineWidth * 2;
     ctx.globalAlpha = 0.5;
     ctx.lineWidth = lineWidth;
-    ctx.fillStyle = '#888';
-    ctx.strokeStyle = '#000';
-    ctx.beginPath();
-    ctx.roundRect(calcBoxX, calcBoxY, calcBoxW, calcBoxH, lineWidth);
-    ctx.stroke();
-    ctx.fill();
+    drawRoundSquare(calcBoxX, calcBoxY, calcBoxW, calcBoxH, lineWidth, '#000', '#888');
 
     ctx.globalAlpha = 1;
     ctx.font = 'bold 20px Sans-serif';
@@ -484,8 +497,12 @@ renderLevelSelection = () => {
     y = calcBoxY + lineWidth + spacing,
     w = 190,
     h = 30;
-    for (let [ label, border, background, width, height, mines, cheats ] of difficulties) {
-        drawLevelSelectionButton(x, y, w, h, label, border, background, width, height, mines, cheats);
+    for (let [ label, border, background, width, height, mines, detectors ] of difficulties) {
+        drawLevelSelectionButton(x, y, w, h, label, border, background, () => {
+            camX = camY = -1;
+            camScale = 0.04;
+            minesweeper = new Minesweeper(width, height, mines, detectors);
+        });
         y += h + lineWidth + spacing;
         if (y + h > calcBoxY + calcBoxH) {
             y = calcBoxY + lineWidth + spacing;
@@ -495,7 +512,7 @@ renderLevelSelection = () => {
 
     x = boxX + boxWidth - (spacing + w);
     y = calcBoxY + lineWidth + spacing;
-    drawLevelSelectionButton(x, y, w, h, 'Custom', '#084', '#0e7', 9, 9, 9, 9);
+    drawLevelSelectionButton(x, y, w, h, 'Custom', '#084', '#0e7', () => menu = 1);
 
     y += h + lineWidth + spacing;
     let width = 12 + Math.round(Math.random() * 16),
@@ -511,7 +528,43 @@ renderLevelSelection = () => {
     gradientBackground.addColorStop(1, 'hsl(360, 100%, 50%)');
     gradientBorder.addColorStop(1, 'hsl(360, 100%, 25%)');
 
-    drawLevelSelectionButton(x, y, w, h, 'Random', gradientBorder, gradientBackground, width, height, mines, Math.ceil(mines / 50));
+    drawLevelSelectionButton(x, y, w, h, 'Random', gradientBorder, gradientBackground, () => {
+        camX = camY = -1;
+        camScale = 0.04;
+        minesweeper = new Minesweeper(width, height, mines, Math.ceil(mines / 50));
+    });
+},
+
+renderCustomSelection = () => {
+    let boxWidth = 900,
+        boxHeight = 185,
+        boxX = halfWidth - boxWidth / 2,
+        boxY = halfHeight - boxHeight / 2,
+        lineWidth = 5,
+        spacing = 10,
+        calcBoxX = boxX - lineWidth,
+        calcBoxY = boxY - lineWidth,
+        calcBoxW = boxWidth + lineWidth * 2,
+        calcBoxH = boxHeight + lineWidth * 2;
+    ctx.globalAlpha = 0.5;
+    ctx.lineWidth = lineWidth;
+    drawRoundSquare(calcBoxX, calcBoxY, calcBoxW, calcBoxH, lineWidth, b, bg, '#000', '#888');
+
+    let settings = {
+        width: 30,
+        height: 20,
+        mines: 80,
+        detectors: 2,
+        seed = Date.now() % 2147483647
+    };
+
+    let w = 190,
+        h = 30;
+    drawLevelSelectionButton(boxX + boxWidth - (spacing + w), calcBoxY + lineWidth + spacing, w, h, 'Start Game', '#084', '#0e7', () => {
+        camX = camY = -1;
+        camScale = 0.04;
+        minesweeper = new Minesweeper(width, height, mines, detectors);
+    });
 },
 
 render = () => {
@@ -524,8 +577,9 @@ render = () => {
     if (minesweeper) {
         renderGameContent();
         renderGameHUD();
-    } else {
-        renderLevelSelection();
+    } else switch (menu) {
+        case 0: renderLevelSelection(); break;
+        case 0: renderCustomSelection(); break;
     }
 };
 
