@@ -36,6 +36,7 @@ class Tile {
         this.grid = grid;
         this.x = x;
         this.y = y;
+        this.id = this.grid.width * y + x;
         this.nearbyMines = 0;       // 4 bits (0-8)
         this.isMine = false;       // 1 bit (true / false)
         this._isRevealed = false; // 1 bit (true / false)
@@ -149,29 +150,29 @@ class Minesweeper {
             return;
         }
 
-        let queue = [first],
-            toReveal = [];
+        let queue = { [first.id]: first },
+            toReveal = {};
 
         while (queue.length) {
-            let queueNew = [];
+            let queueNew = {};
             for (let i = 0; i < queue.length; i++) {
                 let tile = queue[i];
-                toReveal.push(tile);
+                toReveal[tile.id] = tile;
                 if (tile.nearbyMines || tile.isRevealed) continue;
                 let neighbors = tile.neighbors;
                 for (let j = 0; j < neighbors.length; j++) {
                     let neighbor = neighbors[j];
-                    if (!(queueNew.includes(neighbor) || toReveal.includes(neighbor))) {
-                        queueNew.push(neighbor);
+                    if (!(neighbor.id in toReveal)) {
+                        queueNew[neighbor.id] = neighbor;
                     }
                 }
             }
             queue = queueNew;
         }
 
-        for (let tile of toReveal) {
-            tile.isRevealed = true;
-            tile.isFlagged = false;
+        for (let key of Object.keys(toReveal)) {
+            toReveal[key].isRevealed = true;
+            toReveal[key].isFlagged = false;
         }
     }
     checkWin () {
@@ -289,12 +290,21 @@ renderGameContent = () => {
     camX = Math.max(-3.75, Math.min(3.75 + minesweeper.width - canvas.width / size, camX));
     camY = Math.max(-3.75, Math.min(3.75 + minesweeper.height - canvas.height / size, camY));
 
-    let tilesPerRenderColumn = 1 / camScale,
-        tilesToRender = minesweeper.getRectangle(Math.floor(camX), Math.floor(camY), Math.ceil(tilesPerRenderColumn * 16 / 9 + 1), Math.ceil(tilesPerRenderColumn + 1), false);
+
+    let areMoreRevealed = minesweeper.revealed / minesweeper.area > 0.5,
+        tilesPerRenderColumn = 1 / camScale,
+        tilesToRender = minesweeper.getRectangle(Math.floor(camX), Math.floor(camY), Math.ceil(tilesPerRenderColumn * 16 / 9 + 1), Math.ceil(tilesPerRenderColumn + 1), false),
+
+        firstTile = tilesToRender[0],
+        lastTile = tilesToRender[tilesToRender.length - 1];
+
+    ctx.fillStyle = areMoreRevealed ? 'lightgray' : 'gray';
+    ctx.fillRect((firstTile.x - camX) * size, (firstTile.y - camY) * size, (lastTile.x - firstTile.x) * size, (lastTile.y - firstTile.y) * size);
 
     if (size > 10) {
-        for (let tile of tilesToRender) {
-            let x = (tile.x - camX) * size,
+        for (let i = 0; i < tilesToRender.length; i++) {
+            let tile = tilesToRender[i],
+                x = (tile.x - camX) * size,
                 y = (tile.y - camY) * size;
 
             // the base of the tile
@@ -318,8 +328,9 @@ renderGameContent = () => {
         }
     } else if (size > 5) {
         let thirdSize = size / 3;
-        for (let tile of tilesToRender) {
-            let x = (tile.x - camX) * size,
+        for (let i = 0; i < tilesToRender.length; i++) {
+            let tile = tilesToRender[i],
+                x = (tile.x - camX) * size,
                 y = (tile.y - camY) * size,
                 mx = x + thirdSize,
                 my = y + thirdSize;
@@ -343,13 +354,24 @@ renderGameContent = () => {
             ctx.fillRect(mx, my, thirdSize, thirdSize);
         }
     } else {
-        for (let tile of tilesToRender) {
-            let x = (tile.x - camX) * size,
+        for (let i = 0; i < tilesToRender.length; i++) {
+            let tile = tilesToRender[i],
+                x = (tile.x - camX) * size,
                 y = (tile.y - camY) * size;
 
-            // the base of the tile
-            ctx.fillStyle = tile.isRevealed ? tile.isMine ? 'red' : ['lightgray', 'blue', 'green', 'red', 'purple', 'black', 'gray', 'maroon', 'turquoise'][tile.nearbyMines] : (tile.isMine && minesweeper.lost) ? 'darkred' : 'gray';
-            ctx.fillRect(x, y, size, size);
+            // just the base of the tile
+            if (areMoreRevealed ? tile.isMine || !tile.isRevealed : tile.isRevealed) {
+                ctx.fillStyle = tile.isRevealed ?
+                    tile.isMine ?
+                        'red'
+                    :
+                        ['lightgray', 'blue', 'green', 'red', 'purple', 'black', 'gray', 'maroon', 'turquoise'][tile.nearbyMines]
+                : (tile.isMine && minesweeper.lost) ?
+                    'darkred'
+                :
+                    'gray';
+                ctx.fillRect(x, y, size, size);
+            }
         }
     }
 
@@ -455,12 +477,12 @@ drawRoundSquare = (x, y, w, h, r, b, bg) => {
     ctx.fill();
 },
 
-drawLevelSelectionButton = (x, y, w, h, label, border, background, onclick) => {
+drawButton = (x, y, w, h, label, border, background, onclick) => {
     drawRoundSquare(x, y, w, h, 2, border, background);
     ctx.strokeStyle = '#000';
     ctx.fillStyle = '#fff';
     character(label, x + w / 2, y + h / 2, 0);
-    new Clickable(x, y, w, h, onclick);
+    if (onclick) new Clickable(x, y, w, h, onclick);
 },
 
 renderLevelSelection = () => {
@@ -498,7 +520,7 @@ renderLevelSelection = () => {
     w = 190,
     h = 30;
     for (let [ label, border, background, width, height, mines, detectors ] of difficulties) {
-        drawLevelSelectionButton(x, y, w, h, label, border, background, () => {
+        drawButton(x, y, w, h, label, border, background, () => {
             camX = camY = -1;
             camScale = 0.04;
             minesweeper = new Minesweeper(width, height, mines, detectors);
@@ -512,7 +534,7 @@ renderLevelSelection = () => {
 
     x = boxX + boxWidth - (spacing + w);
     y = calcBoxY + lineWidth + spacing;
-    drawLevelSelectionButton(x, y, w, h, 'Custom', '#084', '#0e7', () => menu = 1);
+    drawButton(x, y, w, h, 'Custom', '#084', '#0e7', () => menu = 1);
 
     y += h + lineWidth + spacing;
     let width = 12 + Math.round(Math.random() * 16),
@@ -528,11 +550,19 @@ renderLevelSelection = () => {
     gradientBackground.addColorStop(1, 'hsl(360, 100%, 50%)');
     gradientBorder.addColorStop(1, 'hsl(360, 100%, 25%)');
 
-    drawLevelSelectionButton(x, y, w, h, 'Random', gradientBorder, gradientBackground, () => {
+    drawButton(x, y, w, h, 'Random', gradientBorder, gradientBackground, () => {
         camX = camY = -1;
         camScale = 0.04;
         minesweeper = new Minesweeper(width, height, mines, Math.ceil(mines / 50));
     });
+},
+
+customLevelSettings = {
+    width: 30,
+    detectors: 2,
+    height: 20,
+    seed: Date.now() % 65536,
+    mines: 80,
 },
 
 renderCustomSelection = () => {
@@ -548,26 +578,63 @@ renderCustomSelection = () => {
         calcBoxH = boxHeight + lineWidth * 2;
     ctx.globalAlpha = 0.5;
     ctx.lineWidth = lineWidth;
-    drawRoundSquare(calcBoxX, calcBoxY, calcBoxW, calcBoxH, lineWidth, b, bg, '#000', '#888');
+    drawRoundSquare(calcBoxX, calcBoxY, calcBoxW, calcBoxH, lineWidth, '#000', '#888');
 
-    let settings = {
-        width: 30,
-        height: 20,
-        mines: 80,
-        detectors: 2,
-        seed = Date.now() % 2147483647
-    };
+    let x = calcBoxX + lineWidth + spacing,
+        y = calcBoxY + lineWidth + spacing + 5,
+        w1 = 25,
+        h1 = 25,
+        spacing2 = 6,
+        w2 = 120,
+        h2 = 30;
+    ctx.globalAlpha = 1;
+    ctx.font = 'bold 20px Sans-serif';
+    for (let setting in customLevelSettings) {
+        let name = setting[0].toUpperCase() + setting.slice(1),
+            xLocal = x,
+            yLocalDelta = (h2 - h1) / 2, // look guys i wrote "delta", am i smart yet?
+            yLocal = y + yLocalDelta + 5;
 
-    let w = 190,
+        ctx.fillStyle = '#fff';
+        ctx.textAlign = 'left';
+        character(name, x, yLocal, 0);
+        ctx.textAlign = 'center';
+        yLocal += 15 + spacing2;
+        drawButton(xLocal, yLocal, w1, h1, '-', '#999', '#ddd', () => customLevelSettings[setting]--);
+        yLocal -= yLocalDelta;
+        xLocal += w1 + lineWidth + spacing2;
+        drawButton(xLocal, yLocal, w2, h2, customLevelSettings[setting].toString(), '#ddd', '#fff');
+        yLocal += yLocalDelta;
+        xLocal += w2 + lineWidth + spacing2;
+        drawButton(xLocal, yLocal, w1, h1, '+', '#999', '#ddd', () => customLevelSettings[setting]++);
+
+        y += h2 * 2 + lineWidth + spacing + spacing2 + 20;
+        if (y + 2 * h2 + spacing2 > calcBoxY + calcBoxH) {
+            y = calcBoxY + lineWidth + spacing + 5;
+            x += 2 * w1 + w2 + 3 * lineWidth + 2 * spacing2 + 2 * spacing;
+        }
+    }
+
+    let w = 190;
         h = 30;
-    drawLevelSelectionButton(boxX + boxWidth - (spacing + w), calcBoxY + lineWidth + spacing, w, h, 'Start Game', '#084', '#0e7', () => {
+    x = boxX + boxWidth - (spacing + w);
+    y = calcBoxY + lineWidth + spacing;
+    drawButton(x, y, w, h, 'Start Game', '#084', '#0e7', () => {
         camX = camY = -1;
         camScale = 0.04;
-        minesweeper = new Minesweeper(width, height, mines, detectors);
+        let { width, height, mines, detectors, seed } = customLevelSettings;
+
+        //fuck up the seed a bit so smaller maps dont look similar to larger maps if their seed is identical
+        seed *= 1 + width * (1 + height * (1 + mines * (1 + detectors)));
+
+        minesweeper = new Minesweeper(width, height, mines, detectors, seed);
     });
+    y += h + lineWidth + spacing;
+    drawButton(x, y, w, h, 'Return to Main', '#084', '#0e7', () => menu = 0);
 },
 
 render = () => {
+    let start = Date.now();
     clickables = [];
     ctx.globalAlpha = 1;
     ctx.lineJoin = 'round';
@@ -579,8 +646,9 @@ render = () => {
         renderGameHUD();
     } else switch (menu) {
         case 0: renderLevelSelection(); break;
-        case 0: renderCustomSelection(); break;
+        case 1: renderCustomSelection(); break;
     }
+    console.log('render ms:', Date.now() - start);
 };
 
 document.onkeypress = event => {
@@ -631,8 +699,10 @@ let buttonPressInGameHandler = (x, y, button) => {
         if (button == 1) {
             auxMove = true;
         } else {
-            let size = Math.min(canvas.width, canvas.height) * camScale;
+            let size = Math.min(canvas.width, canvas.height) * camScale,
+                start = Date.now();
             minesweeper.play(Math.floor(x / size + camX), Math.floor(y / size + camY), button == 2);
+            console.log('game ms:', Date.now() - start);
             render();
         }
     }
