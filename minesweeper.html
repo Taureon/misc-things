@@ -151,12 +151,15 @@ class Minesweeper {
         }
 
         let queue = { [first.id]: first },
+            loop = true,
             toReveal = {};
 
-        while (queue.length) {
-            let queueNew = {};
-            for (let i = 0; i < queue.length; i++) {
-                let tile = queue[i];
+        while (loop) {
+            loop = false;
+            let queueNew = {},
+                queueKeys = Object.keys(queue);
+            for (let i = 0; i < queueKeys.length; i++) {
+                let tile = queue[queueKeys[i]];
                 toReveal[tile.id] = tile;
                 if (tile.nearbyMines || tile.isRevealed) continue;
                 let neighbors = tile.neighbors;
@@ -164,6 +167,7 @@ class Minesweeper {
                     let neighbor = neighbors[j];
                     if (!(neighbor.id in toReveal)) {
                         queueNew[neighbor.id] = neighbor;
+                        loop = true;
                     }
                 }
             }
@@ -291,7 +295,9 @@ renderGameContent = () => {
     camY = Math.max(-3.75, Math.min(3.75 + minesweeper.height - canvas.height / size, camY));
 
 
-    let areMoreRevealed = minesweeper.revealed / minesweeper.area > 0.5,
+    let u = size / 48,
+        gridLineSpacing = 1,
+        areMoreRevealed = minesweeper.revealed / minesweeper.area > 0.5,
         tilesPerRenderColumn = 1 / camScale,
         tilesToRender = minesweeper.getRectangle(Math.floor(camX), Math.floor(camY), Math.ceil(tilesPerRenderColumn * 16 / 9 + 1), Math.ceil(tilesPerRenderColumn + 1), false),
 
@@ -327,6 +333,7 @@ renderGameContent = () => {
             }
         }
     } else if (size > 5) {
+        u *= 3;
         let thirdSize = size / 3;
         for (let i = 0; i < tilesToRender.length; i++) {
             let tile = tilesToRender[i],
@@ -336,10 +343,8 @@ renderGameContent = () => {
                 my = y + thirdSize;
 
             // the base of the tile
-            ctx.fillStyle = '#404040';
-            ctx.fillRect(x, y, size, size);
             ctx.fillStyle = tile.isRevealed ? tile.isMine ? 'red' : 'lightgray' : (tile.isMine && minesweeper.lost) ? 'darkred' : 'gray';
-            ctx.fillRect(x + size * 0.1, y + size * 0.1, size * 0.8, size * 0.8);
+            ctx.fillRect(x, y, size, size);
 
             // whatever symbol is supposed to be on the tile
             if (!tile.isRevealed) {
@@ -354,6 +359,8 @@ renderGameContent = () => {
             ctx.fillRect(mx, my, thirdSize, thirdSize);
         }
     } else {
+        u *= 3;
+        gridLineSpacing = 10;
         for (let i = 0; i < tilesToRender.length; i++) {
             let tile = tilesToRender[i],
                 x = (tile.x - camX) * size,
@@ -375,16 +382,17 @@ renderGameContent = () => {
         }
     }
 
-    if (size < 3) return;
+    if (size < 1) return;
     //draws the black grid lines and the entire-grid outline
-    let u = size / 48;
     ctx.fillStyle = '#000';
-    for (let X = 0; X <= minesweeper.width; X++) {
+    let upperLimit = Math.min(minesweeper.width, Math.floor(tilesPerRenderColumn * 16 / 9 + 1));
+    for (let X = Math.max(0, Math.ceil(camX)); X <= upperLimit; X += gridLineSpacing) {
         let x = (X - camX) * size,
             y = (0 - camY) * size;
         ctx.fillRect(x - u, y - u, 2 * u, minesweeper.height * size);
     }
-    for (let Y = 0; Y <= minesweeper.height; Y++) {
+    upperLimit = Math.min(minesweeper.height, Math.floor(tilesPerRenderColumn + 1));
+    for (let Y = Math.max(0, Math.ceil(camY)); Y <= upperLimit; Y += gridLineSpacing) {
         let x = (0 - camX) * size,
             y = (Y - camY) * size;
         ctx.fillRect(x - u, y - u, minesweeper.width * size, 2 * u);
