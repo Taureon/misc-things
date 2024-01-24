@@ -279,6 +279,8 @@ let canvas = document.getElementById('canvas'),
     // i just shoved all the game logic in this class so i dont have to look at it
     minesweeper = null,
 
+numberColors = ['lightgray', 'blue', 'green', 'red', 'purple', 'black', 'gray', 'maroon', 'turquoise'],
+
 character = (character, x, y, size) => {
     ctx.strokeText(character, x + size / 2, y + size * 0.56);
     ctx.fillText(character, x + size / 2, y + size * 0.56);
@@ -328,7 +330,7 @@ renderGameContent = () => {
             } else if (tile.isMine) {
                 character('💣', x, y, size);
             } else if (tile.nearbyMines) {
-                ctx.fillStyle = ['lightgray', 'blue', 'green', 'red', 'purple', 'black', 'gray', 'maroon', 'turquoise'][tile.nearbyMines];
+                ctx.fillStyle = numberColors[tile.nearbyMines];
                 character(tile.nearbyMines.toString(), x, y, size);
             }
         }
@@ -350,13 +352,15 @@ renderGameContent = () => {
             if (!tile.isRevealed) {
                 if (tile.isFlagged) {
                     ctx.fillStyle = 'red';
+                    ctx.fillRect(mx, my, thirdSize, thirdSize);
                 }
             } else if (tile.isMine) {
                 ctx.fillStyle = 'purple';
+                ctx.fillRect(mx, my, thirdSize, thirdSize);
             } else if (tile.nearbyMines) {
-                ctx.fillStyle = ['lightgray', 'blue', 'green', 'red', 'purple', 'black', 'gray', 'maroon', 'turquoise'][tile.nearbyMines];
+                ctx.fillStyle = numberColors[tile.nearbyMines];
+                ctx.fillRect(mx, my, thirdSize, thirdSize);
             }
-            ctx.fillRect(mx, my, thirdSize, thirdSize);
         }
     } else {
         u *= 3;
@@ -368,15 +372,7 @@ renderGameContent = () => {
 
             // just the base of the tile
             if (areMoreRevealed ? tile.isMine || !tile.isRevealed : tile.isRevealed) {
-                ctx.fillStyle = tile.isRevealed ?
-                    tile.isMine ?
-                        'red'
-                    :
-                        ['lightgray', 'blue', 'green', 'red', 'purple', 'black', 'gray', 'maroon', 'turquoise'][tile.nearbyMines]
-                : (tile.isMine && minesweeper.lost) ?
-                    'darkred'
-                :
-                    'gray';
+                ctx.fillStyle = tile.isRevealed ? tile.isMine ? 'red' : numberColors[tile.nearbyMines] : (tile.isMine && minesweeper.lost) ? 'darkred' : 'gray';
                 ctx.fillRect(x, y, size, size);
             }
         }
@@ -385,22 +381,18 @@ renderGameContent = () => {
     if (size < 1) return;
     //draws the black grid lines and the entire-grid outline
     ctx.fillStyle = '#000';
-    let upperLimit = Math.min(minesweeper.width, Math.floor(tilesPerRenderColumn * 16 / 9 + 1));
+    let upperLimit = Math.min(minesweeper.width, Math.floor(camX + tilesPerRenderColumn * 16 / 9 + 1));
     for (let X = Math.max(0, Math.ceil(camX)); X <= upperLimit; X += gridLineSpacing) {
-        let x = (X - camX) * size,
-            y = (0 - camY) * size;
-        ctx.fillRect(x - u, y - u, 2 * u, minesweeper.height * size);
+        ctx.fillRect((X - camX) * size - u, (0 - camY) * size - u, 2 * u, minesweeper.height * size);
     }
-    upperLimit = Math.min(minesweeper.height, Math.floor(tilesPerRenderColumn + 1));
+    upperLimit = Math.min(minesweeper.height, Math.floor(camY + tilesPerRenderColumn + 1));
     for (let Y = Math.max(0, Math.ceil(camY)); Y <= upperLimit; Y += gridLineSpacing) {
-        let x = (0 - camX) * size,
-            y = (Y - camY) * size;
-        ctx.fillRect(x - u, y - u, minesweeper.width * size, 2 * u);
+        ctx.fillRect((0 - camX) * size - u, (Y - camY) * size - u, minesweeper.width * size, 2 * u);
     }
     u *= 2;
     ctx.lineWidth = u;
     ctx.strokeStyle = '#222';
-    u--;
+    u -= 1;
     ctx.strokeRect(-camX * size - u, -camY * size - u, minesweeper.width * size + 2 * u, minesweeper.height * size + 2 * u);
 },
 
@@ -642,7 +634,6 @@ renderCustomSelection = () => {
 },
 
 render = () => {
-    let start = Date.now();
     clickables = [];
     ctx.globalAlpha = 1;
     ctx.lineJoin = 'round';
@@ -656,7 +647,6 @@ render = () => {
         case 0: renderLevelSelection(); break;
         case 1: renderCustomSelection(); break;
     }
-    console.log('render ms:', Date.now() - start);
 };
 
 document.onkeypress = event => {
@@ -707,10 +697,8 @@ let buttonPressInGameHandler = (x, y, button) => {
         if (button == 1) {
             auxMove = true;
         } else {
-            let size = Math.min(canvas.width, canvas.height) * camScale,
-                start = Date.now();
+            let size = Math.min(canvas.width, canvas.height) * camScale;
             minesweeper.play(Math.floor(x / size + camX), Math.floor(y / size + camY), button == 2);
-            console.log('game ms:', Date.now() - start);
             render();
         }
     }
